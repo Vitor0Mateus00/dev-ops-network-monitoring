@@ -168,9 +168,6 @@ curl http://localhost:8000/scrape
 # Testar API
 curl http://localhost:8000/
 
-# Verificar dados no banco
-curl http://localhost:8000/test
-
 # Verificar targets configurados
 curl http://localhost:8000/blackbox/targets
 
