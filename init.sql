@@ -1,0 +1,15 @@
+CREATE TABLE IF NOT EXISTS ping_results (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  host VARCHAR(255),
+  rtt_ms FLOAT,
+  packet_loss FLOAT,
+  test_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS http_results (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  host VARCHAR(255),
+  status_code INT,
+  load_time_ms FLOAT,
+  test_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
