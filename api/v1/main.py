@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 from fastapi import FastAPI, HTTPException
 import mysql.connector
@@ -25,6 +26,7 @@ targets = ["google.com", "youtube.com", "rnp.br"]
 
 @app.on_event("startup")
 async def startup_event():
+    time.sleep(30)
     build_targets_json()
     print("Arquivo de targets criado e Prometheus recarregado.")
 
@@ -76,6 +78,7 @@ def build_targets_json():
 
 def query_prometheus(query):
     print(f"Rodando query: {query}")
+
     r = requests.get(PROMETHEUS_URL, params={"query": query})
     r.raise_for_status()
     data = r.json()
@@ -86,19 +89,20 @@ def query_prometheus(query):
 def save_ping_results(conn):
     cursor = conn.cursor()
     for target in targets:
-        rtt_query = f'probe_icmp_rtt_seconds{{target="{target}"}}'
-        loss_query = f'probe_icmp_loss{{target="{target}"}}'
+        rtt_query = f'probe_duration_seconds{{instance="{target}", job="blackbox_ping"}}'
+        success_query = f'probe_success{{instance="{target}", job="blackbox_ping"}}'
 
         rtt_resp = query_prometheus(rtt_query)
-        loss_resp = query_prometheus(loss_query)
+        success_resp = query_prometheus(success_query)
 
         rtt_ms = None
         packet_loss = None
 
         if rtt_resp["data"]["result"]:
             rtt_ms = float(rtt_resp["data"]["result"][0]["value"][1]) * 1000
-        if loss_resp["data"]["result"]:
-            packet_loss = float(loss_resp["data"]["result"][0]["value"][1])
+        if success_resp["data"]["result"]:
+            success = float(success_resp["data"]["result"][0]["value"][1])
+            packet_loss = 1.0 - success
 
         if rtt_ms is not None and packet_loss is not None:
             print(f"Inserindo ping: {target}, {rtt_ms}, {packet_loss}")
@@ -113,8 +117,8 @@ def save_ping_results(conn):
 def save_http_results(conn):
     cursor = conn.cursor()
     for target in targets:
-        status_query = f'probe_http_status_code{{target="{target}"}}'
-        time_query = f'probe_http_duration_seconds{{target="{target}"}}'
+        status_query = f'probe_http_status_code{{instance="{target}", job="blackbox_http"}}'
+        time_query = f'probe_http_duration_seconds{{instance="{target}", job="blackbox_http"}}'
 
         status_resp = query_prometheus(status_query)
         time_resp = query_prometheus(time_query)
@@ -140,7 +144,17 @@ def save_http_results(conn):
 @app.get("/scrape")
 def scrape_and_save():
     print("Coletando métricas")
-    conn = mysql.connector.connect(**MYSQL_CONFIG)
+
+    for attempt in range(3):
+        try:
+            conn = mysql.connector.connect(**MYSQL_CONFIG)
+            break
+        except Exception as e:
+            print(f"Tentativa {attempt + 1} falhou: {e}")
+            if attempt == 2:
+                raise HTTPException(status_code=500, detail="Não foi possível conectar ao MySQL")
+            time.sleep(5)
+
     try:
         save_ping_results(conn)
         save_http_results(conn)

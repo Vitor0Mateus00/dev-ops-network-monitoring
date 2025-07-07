@@ -1,19 +1,26 @@
 version: "3.8"
 
 services:
-  fastapi:
-    build:
-      context: .
-    container_name: blackbox_targets_api
+  mysql:
+    image: mysql:8
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: monitoring
+      MYSQL_USER: grafana
+      MYSQL_PASSWORD: grafana
     ports:
-      - "8000:8000"
+      - "3306:3306"
     volumes:
-      - blackbox_targets:/etc/prometheus
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_data:/var/lib/mysql
     networks:
       - monitoring
-    depends_on:
-      - prometheus
-      - mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      timeout: 20s
+      retries: 10
 
   prometheus:
     image: prom/prometheus:latest
@@ -25,14 +32,36 @@ services:
       - blackbox_targets:/etc/prometheus
     networks:
       - monitoring
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.enable-lifecycle'
 
   blackbox_exporter:
     image: prom/blackbox-exporter:latest
     container_name: blackbox_exporter
     ports:
       - "9115:9115"
+    volumes:
+      - ./blackbox_exporter_config.yml:/etc/blackbox_exporter/config.yml:ro
     networks:
       - monitoring
+    cap_add:
+      - NET_RAW
+
+  fastapi:
+    build:
+      context: .
+    container_name: blackbox_targets_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - blackbox_targets:/etc/prometheus
+    networks:
+      - monitoring
+    depends_on:
+      - mysql
+      - prometheus
+      - blackbox_exporter
 
   grafana:
     image: grafana/grafana:latest
@@ -50,22 +79,6 @@ services:
     depends_on:
       - prometheus
       - mysql
-
-  mysql:
-    image: mysql:8
-    container_name: mysql
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: monitoring
-      MYSQL_USER: grafana
-      MYSQL_PASSWORD: grafana
-    ports:
-      - "3306:3306"
-    volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - monitoring
 
 networks:
   monitoring:
